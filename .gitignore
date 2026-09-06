@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.venv*/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+
+# Secrets
+.env
+.env.local
+*.pem
+*.key
+kaggle.json
+
+# OS / editor
+.DS_Store
+.claude/
+.aider*
+
+# Large raw/processed data
+data/
+kaggle/
+*.csv
+*.nc
+*.h5
+*.pt

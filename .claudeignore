@@ -1,0 +1,34 @@
+# Raw data — large files, inspect via scripts/pandas, not by reading into context
+data/raw/**
+
+# Large Phase 1 outputs (100s of MB) — inspect with pandas, never read wholesale.
+# Small processed files (district_name_mapping.csv, pumping_proxy.csv,
+# well_stats_2018_19.csv, DATA_DICTIONARY.md) are deliberately NOT ignored.
+data/processed/observations.csv
+data/processed/groundwater_level.csv
+data/processed/collocation.csv
+data/processed/humidity_daily.csv
+data/processed/rainfall_daily.csv
+data/processed/recharge_daily.csv
+
+# Generated plot images — not needed in context after generation
+data/processed/plots/**.png
+kaggle/results/**.png
+
+# Kaggle run artifacts — weights are binary, the log is long and re-derivable.
+# STATUS.md is the record of what each run produced; read that instead.
+kaggle/results/*.pth
+kaggle/results/*.log
+kaggle/.virtual_documents/**
+
+# Binary formats — inspect via code, never read directly
+*.xlsx
+*.nc
+*.pdf
+*.pth
+
+# Python / venv cruft
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
