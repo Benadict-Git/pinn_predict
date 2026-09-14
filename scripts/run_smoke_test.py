@@ -11,7 +11,7 @@ Run from repo root:
 """
 import json, sys, os, shutil, traceback
 
-NB_PATH = "notebooks/pinn_train.ipynb"
+NB_PATH = sys.argv[1] if len(sys.argv) > 1 else "notebooks/pinn_train.ipynb"
 DATA_DIR_LOCAL = "data/processed"
 OUTPUT_DIR_LOCAL = "/tmp/pinn_smoke_out"
 ELEV_CACHE_SRC = "kaggle/results/elevation_cache.csv"

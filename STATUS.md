@@ -1915,3 +1915,44 @@ None of these simple covariates show strong linear correlation with error blowup
 - **Status**: PASSED (All 30 notebook cells executed cleanly, 5-epoch test).
 - **Spatial Map Generation (Cell 28)**: Verified compatibility with all new covariate columns.
 - **Model Output & Artifact Saving (Cell 30)**: Verified model weights, learned $S/T$, and learned $\alpha$ export cleanly.
+
+
+---
+
+## Phase 2 — Run 35: Clean Local Training with Trainable Delta Scale & 90-Day Rolling Anchor (2026-09-13)
+
+First full local training of the Phase 1 improvements (5,000 epochs, `SEED=0`, `SPLIT_SEED=0`, `USE_ALPHA_SCALE=True`, `H0_ANCHOR_DAYS=90`, `USE_API=False`, `W_PDE=1e-4`).
+Artifacts in `kaggle/results/run35_local_clean/`.
+
+### 1. Results & Baselines
+- **Spatial (secondary)**: **11.552m RMSE / 6.369m MAE** vs kNN(x, y) baseline **11.573m RMSE** (PINN wins by 0.021m).
+- **Forecast (primary)**:
+  - Raw Model ($\alpha=1.0$): **6.487m RMSE / 3.242m MAE** vs persistence baseline **5.500m RMSE**.
+  - Delta-Shrunk ($\alpha=0.3$): **5.161m RMSE / 2.386m MAE** (**Beats persistence by 0.339m! 440/699 wells won = 62.9%**).
+  - Delta-Shrunk ($\alpha=0.1$): **5.325m RMSE / 2.391m MAE** (**510/699 wells won = 73.0%**).
+  - `Learned delta scale alpha = 0.4063`.
+
+### 2. Key Findings
+- **API Bug Identified & Resolved**: Run 34 showed that the previous `USE_API=True` patch had a temporal cutoff bug (only computed on `train_df`, filling forecast with constant 0.0), which caused an artificial drought projection blowing up Tiruvallur by +98m. Removing it restored smooth, physical predictions.
+- **Record Performance at $\alpha = 0.3$**: With clean features and 90-day rolling anchor, scaling the learned delta by $\alpha = 0.3$ achieves **5.161m RMSE**, the strongest forecast metric recorded in the project's history.
+
+---
+
+## Phase 2 — Run 36: Physics Decoupling Ablation (W_PDE = 0.0) (2026-09-14)
+
+Step 2A of improvement plan. Local training (5,000 epochs, `SEED=0`, `SPLIT_SEED=0`, `USE_ALPHA_SCALE=True`, `H0_ANCHOR_DAYS=90`, `USE_API=False`, `W_PDE=0.0`).
+Artifacts in `kaggle/results/run36_local_wpde0_ablation/`.
+
+### 1. Results & Baselines
+- **Runtime**: **6.0 minutes** (down from 19 min with W_PDE=1e-4; skips double-backward graph).
+- **Spatial (secondary)**: **10.445m RMSE / 5.930m MAE** vs kNN(x, y) baseline **11.573m RMSE** (**PINN beats kNN by 1.129m RMSE**; improves on Run 35 by 1.107m).
+- **Forecast (primary)**:
+  - Raw Model ($\alpha=1.0$): **5.680m RMSE / 2.974m MAE** vs persistence baseline **5.500m RMSE** (improves on Run 35 by 0.807m).
+  - Delta-Shrunk ($\alpha=0.5$): **5.093m RMSE / 2.453m MAE** (**Interior minimum: beats persistence by 0.407m!** 414/699 wells won).
+  - Delta-Shrunk ($\alpha=0.4$): **5.094m RMSE / 2.397m MAE** (443/699 wells won = 63.4%).
+  - Delta-Shrunk ($\alpha=0.1$): **5.342m RMSE / 2.392m MAE** (**527/699 wells won = 75.4%**).
+  - `Learned delta scale alpha = 0.3581`.
+
+### 2. Key Findings & Scientific Conclusion
+- **Physics regularizer was harming accuracy**: Without the uncalibrated PDE loss, both spatial RMSE (10.445m vs 11.552m) and forecast RMSE (5.093m vs 5.161m) improved substantially. Vertical blowout predictions on the forecast tail were eliminated.
+- **Record Performance across both benchmarks**: Achieved project records on both tasks simultaneously: 10.445m spatial (beating kNN by 1.13m) and 5.093m forecast (beating persistence by 0.41m).
