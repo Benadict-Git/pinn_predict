@@ -15,6 +15,10 @@ import sys
 import time
 import traceback
 
+os.environ["MPLBACKEND"] = "Agg"
+import matplotlib
+matplotlib.use("Agg")
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NB_PATH = os.path.join(REPO_ROOT, "notebooks", "pinn_train.ipynb")
 DATA_DIR_LOCAL = os.path.join(REPO_ROOT, "data", "processed")
@@ -30,8 +34,8 @@ def parse_args():
     parser.add_argument("--print-every", type=int, default=500, help="Logging frequency")
     parser.add_argument("--use-alpha-scale", type=str, default="True", choices=["True", "False"])
     parser.add_argument("--h0-anchor-days", type=int, default=90)
-    parser.add_argument("--w-pde", type=float, default=1e-4)
-    parser.add_argument("--use-api", type=str, default="True", choices=["True", "False"])
+    parser.add_argument("--w-pde", type=float, default=0.0)
+    parser.add_argument("--use-api", type=str, default="False", choices=["True", "False"])
     parser.add_argument("--use-seasonal", type=str, default="True", choices=["True", "False"])
     return parser.parse_args()
 
@@ -71,7 +75,7 @@ def main():
     print("=" * 70)
     print(f"PINN LOCAL TRAINING: {args.run_name}")
     print(f"Config: epochs={args.epochs}, seed={args.seed}, split_seed={args.split_seed}")
-    print(f"Features: alpha_scale={args.use_alpha_scale}, h0_anchor_days={args.h0_anchor_days}, w_pde={args.w_pde}, api={args.use_api}")
+    print(f"Features: alpha_scale={args.use_alpha_scale}, h0_anchor_days={args.h0_anchor_days}, w_pde={args.w_pde}, api={args.use_api}, seasonal={args.use_seasonal}")
     print(f"Output directory: {out_dir}")
     print("=" * 70)
 
@@ -103,7 +107,7 @@ def main():
         'USE_VELOCITY = True': 'USE_VELOCITY = False',
         'USE_ALPHA_SCALE = True': f'USE_ALPHA_SCALE = {args.use_alpha_scale}',
         'H0_ANCHOR_DAYS = 90': f'H0_ANCHOR_DAYS = {args.h0_anchor_days}',
-        'W_PDE = 0.0001': f'W_PDE = {args.w_pde}',
+        'W_PDE = 0.0': f'W_PDE = {args.w_pde}',
         'USE_API = True': f'USE_API = {args.use_api}',
         'USE_SEASONAL = True': f'USE_SEASONAL = {args.use_seasonal}',
     }
@@ -112,6 +116,8 @@ def main():
         for old, new in overrides.items():
             src = src.replace(old, new)
         if cell_i == 4:
+            src = re.sub(r"\bN_EPOCHS_ADAM\s*=\s*\d+", f"N_EPOCHS_ADAM = {args.epochs}", src)
+            src = re.sub(r"\bPRINT_EVERY\s*=\s*\d+", f"PRINT_EVERY = {args.print_every}", src)
             src = re.sub(r"\bSEED\s*=\s*\d+", f"SEED = {args.seed}", src)
             src = re.sub(r"\bSPLIT_SEED\s*=\s*\d+", f"SPLIT_SEED = {args.split_seed}", src)
             src = re.sub(r"\bUSE_ALPHA_SCALE\s*=\s*\w+", f"USE_ALPHA_SCALE = {args.use_alpha_scale}", src)

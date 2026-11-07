@@ -9,7 +9,11 @@ Executes every code cell in one shared namespace with:
 Run from repo root:
   source .venv/bin/activate && python scripts/run_smoke_test.py
 """
-import json, sys, os, shutil, traceback
+import json, sys, os, shutil, traceback, re
+
+os.environ["MPLBACKEND"] = "Agg"
+import matplotlib
+matplotlib.use("Agg")
 
 NB_PATH = sys.argv[1] if len(sys.argv) > 1 else "notebooks/pinn_train.ipynb"
 DATA_DIR_LOCAL = "data/processed"
@@ -44,12 +48,18 @@ OVERRIDES = {
     'USE_VELOCITY = True':       'USE_VELOCITY = False',
     'RUN_LBFGS_FINETUNE = True': 'RUN_LBFGS_FINETUNE = False',
     'RUN_LBFGS_FINETUNE = False': 'RUN_LBFGS_FINETUNE = False',  # keep it off
+    # Major improvement from the improvement plan: enable learnable delta scaling
+    # and the 90‑day rolling anchor (both already set in the notebook config cell,
+    # but we force them here so the smoke test exercises them).
+    'USE_ALPHA_SCALE = True':   'USE_ALPHA_SCALE = True',
+    'H0_ANCHOR_DAYS = 90':      'H0_ANCHOR_DAYS = 90',
 }
 
 
 def patch(src):
     for old, new in OVERRIDES.items():
         src = src.replace(old, new)
+    src = re.sub(r"\bN_EPOCHS_ADAM\s*=\s*\d+", "N_EPOCHS_ADAM = 5", src)
     return src
 
 

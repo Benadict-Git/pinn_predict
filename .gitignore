@@ -24,8 +24,10 @@ kaggle.json
 .claude/
 .aider*
 
-# Large raw/processed data
-data/
+# Large raw/processed data (ignore unzipped CSVs, keep compressed archives)
+data/raw/
+data/processed/
+!data/*.zip
 kaggle/
 *.csv
 *.nc

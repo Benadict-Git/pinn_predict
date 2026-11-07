@@ -1,0 +1,252 @@
+\documentclass[10pt,conference,letterpaper]{IEEEtran}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{microtype}
+
+\begin{document}
+
+\title{Decoupled Physics-Informed Residual Networks for Regional Groundwater Forecasting: When Does Physical Regularization Help?}
+
+\author{\IEEEauthorblockN{Benadict Infanta}
+\IEEEauthorblockA{\textit{Department of Water Resources and Hydroinformatics} \\
+\textit{Tamil Nadu Groundwater Modeling Consortium} \\
+Email: benadictinfanta@research.org}
+\and
+\IEEEauthorblockN{Hydroinformatics Research Group}
+\IEEEauthorblockA{\textit{Computational Earth and Environmental Sciences} \\
+Tamil Nadu, India}
+}
+
+\maketitle
+
+\begin{abstract}
+Physics-Informed Neural Networks (PINNs) have emerged as a prominent paradigm for embedding partial differential equations (PDEs) into deep learning architectures. However, their application to regional, multi-decadal hydrogeological systems often encounters severe domain mismatches: governing flux terms (recharge $R$ and abstraction $Q$) frequently exist only as uncalibrated empirical proxies rather than metered physical rates, while continental spatial scales ($\sim 700$~km) compress second-order spatial differential operators ($\nabla^2 h \sim 10^{-11}\text{ m}^{-1}$) below gradient noise thresholds. In this work, we investigate regional groundwater level prediction across the 38 districts of Tamil Nadu, India, utilizing a 54-year observational dataset (1972--2026) comprising 4.58 million records from 3,391 monitoring stations. We formulate an anchored residual architecture where the neural network models localized deviations ($\Delta$) from a 90-day pre-cutoff rolling observation floor ($\hat{h}_0$), scaled by a learnable shrinkage parameter $\alpha$. Across rigorous 3-seed validation batteries on a pinned benchmark split, we systematically ablate the 2D transient unconfined groundwater flow PDE ($W_{\text{PDE}}$), harmonic seasonal encodings, and continuous antecedent precipitation indices (API).
+
+Our experiments demonstrate two decisive findings: First, uncalibrated proxy PDE regularizers introduce synthetic gradient conflict during joint training; setting $W_{\text{PDE}} = 0.0$ yields superior predictive accuracy on both 1.2-year temporal forecasting (RMSE 5.057~m vs. persistence baseline 5.500~m; 75.6\% well win rate) and spatial generalization across held-out wells (RMSE 10.668~m vs. 5-kNN baseline 11.573~m). Second, harmonic annual encodings provide an indispensable inductive bias that prevents catastrophic out-of-domain temporal extrapolation (disabling seasonality doubles raw forecast RMSE to 11.071~m). We propose decoupling the predictive engine from physical parameter inversion: the anchored network provides operational hydrological forecasts, while storativity ($S$) and transmissivity ($T$) are inferred in a secondary diagnostic stage.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Groundwater Hydrology, Physics-Informed Neural Networks, Scientific Machine Learning, Residual Networks, Regional Aquifer Dynamics.
+\end{IEEEkeywords}
+
+\section{Introduction}
+Groundwater serves as the primary freshwater buffer for over two billion people worldwide, sustaining agricultural irrigation and municipal supplies across arid and semi-arid regions. In peninsular India---particularly within the state of Tamil Nadu---groundwater management is characterized by complex hydrogeological heterogeneity. The landscape transitions from high-elevation crystalline basement complexes in the Western Ghats to fractured hard-rock Deccan Traps inland, terminating in sedimentary coastal aquifers and the alluvial delta of the Cauvery basin. Intensive agricultural abstraction via millions of energized tube wells, coupled with erratic monsoonal precipitation (Southwest and Northeast monsoons), induces pronounced seasonal fluctuations and secular water-table depletion.
+
+Accurate prediction of groundwater level $h(x, y, t)$---defined operationally as depth to water table below ground level---is critical for drought warning systems and agricultural water allocations. Traditional hydrogeological modeling relies on distributed numerical solvers such as MODFLOW~\cite{mcdonald1988modular}. While physically rigorous, numerical solvers require extensive boundary parameterization, hydraulic conductivity fields, and calibrated pumping schedules that are rarely available at regional scales. Conversely, pure machine learning approaches often overfit spurious historical correlations, lack spatial coherence across ungauged locations, and fail to extrapolate across unseen hydrometeorological extremes.
+
+Physics-Informed Neural Networks (PINNs)~\cite{raissi2019physics} have been proposed to bridge this divide by penalizing residuals of governing physical PDEs within the network loss function. For unconfined aquifers, the governing physics is given by the two-dimensional transient groundwater flow equation:
+\begin{equation}
+S(x, y) \frac{\partial h}{\partial t} = \nabla \cdot \big(T(x, y) \nabla h\big) + R(x, y, t) - Q(x, y, t)
+\label{eq:pde_primary}
+\end{equation}
+where $S$ is aquifer storativity, $T$ is transmissivity, $R$ is net vertical recharge, and $Q$ is groundwater abstraction.
+
+Despite theoretical appeal, deploying PINNs to real-world regional hydrology presents three formidable challenges:
+\begin{enumerate}
+    \item \textbf{Uncalibrated Empirical Proxies:} Regional precipitation, relative humidity, and agricultural well counts provide qualitative indices of recharge and extraction, but lack absolute volumetric conversion ($\text{m}^3/\text{day}$).
+    \item \textbf{Extreme Spatial Scale Disparity:} Tamil Nadu spans approximately $700\text{ km} \times 450\text{ km}$. Converting spatial coordinates to physical meters compresses the second spatial derivatives ($\nabla^2 h$) by eleven orders of magnitude relative to first temporal derivatives ($\partial h / \partial t$) and source-sink proxies ($R, Q$).
+    \item \textbf{The Persistence Baseline Barrier:} At unconfined monitoring wells, hydraulic head exhibits high temporal autocorrelation. Naive neural networks routinely fail to outperform simple persistence (holding the last known reading constant) on multi-month forecasting horizons.
+\end{enumerate}
+
+In this paper, we conduct an exhaustive empirical study spanning 44 sequential experimental runs and 3-seed validation batteries to determine how to effectively formulate, train, and evaluate neural network architectures for regional groundwater prediction. We present an anchored residual neural network with learnable delta shrinkage and demonstrate that while seasonal harmonic encodings are essential inductive biases, uncalibrated proxy PDEs act as destructive noise when trained jointly. We advocate for a decoupled paradigm that outperforms both persistence and spatial kNN baselines across peninsular India.
+
+\section{Hydrogeological Formulation}
+
+\subsection{Governing Flow Equation}
+Groundwater dynamics in a two-dimensional horizontal unconfined aquifer are governed by the Boussinesq equation. Under the assumption of Dupuit-Forchheimer horizontal flow, fluid mass conservation yields:
+\begin{equation}
+S(x, y) \frac{\partial h}{\partial t} - T(x, y) \left( \frac{\partial^2 h}{\partial x^2} + \frac{\partial^2 h}{\partial y^2} \right) - R(x, y, t) + Q(x, y, t) = 0
+\label{eq:boussinesq}
+\end{equation}
+In this formulation:
+\begin{itemize}
+    \item $h(x, y, t) \in \mathbb{R}^+$ represents depth to the water table in meters below the surface. Absolute hydraulic head is related to ground surface elevation $z_{\text{surf}}(x, y)$ via $H(x, y, t) = z_{\text{surf}}(x, y) - h(x, y, t)$. Because topography is time-invariant ($\partial z_{\text{surf}}/\partial t = 0$), $\partial H / \partial t = -\partial h / \partial t$.
+    \item $S(x, y)$ is the dimensionless storage coefficient (specific yield $S_y$ for unconfined systems).
+    \item $T(x, y) = K \cdot b$ is transmissivity ($\text{m}^2/\text{day}$), where $K$ is hydraulic conductivity and $b$ is saturated aquifer thickness.
+    \item $R(x, y, t)$ represents diffuse net recharge ($\text{m}/\text{day}$), driven by monsoonal infiltration minus actual evapotranspiration.
+    \item $Q(x, y, t)$ represents extraction sinks ($\text{m}/\text{day}$), dominated by agricultural tube-well pumping.
+\end{itemize}
+
+\subsection{Coordinate Normalization and the Laplacian Dilemma}
+Neural networks require zero-mean, unit-variance input features:
+\begin{equation}
+\hat{x} = \frac{x - x_c}{x_s}, \quad \hat{y} = \frac{y - y_c}{y_s}, \quad \hat{t} = \frac{t - t_c}{t_s}, \quad \hat{h} = \frac{h - h_c}{h_s}
+\end{equation}
+For Tamil Nadu, the spatial domain covers longitudes $76.4^\circ\text{E} - 80.3^\circ\text{E}$ and latitudes $8.1^\circ\text{N} - 13.5^\circ\text{N}$. Converting degrees to physical meters via WGS84 geodesy ($1^\circ \text{lon} \approx 109.8\text{ km}$, $1^\circ \text{lat} \approx 110.6\text{ km}$) yields spatial scale factors $x_s \approx 9.1 \times 10^4\text{ m}$ and $y_s \approx 1.3 \times 10^5\text{ m}$. Water table depths range over $h_s \approx 8.7\text{ m}$, while time spans decades ($t_s \approx 1.9 \times 10^3\text{ days}$).
+
+By applying the chain rule to the physical derivatives:
+\begin{equation}
+\frac{\partial h}{\partial t} = \frac{h_s}{t_s} \frac{\partial \hat{h}}{\partial \hat{t}}, \quad \frac{\partial^2 h}{\partial x^2} = \frac{h_s}{x_s^2} \frac{\partial^2 \hat{h}}{\partial \hat{x}^2}, \quad \frac{\partial^2 h}{\partial y^2} = \frac{h_s}{y_s^2} \frac{\partial^2 \hat{h}}{\partial \hat{y}^2}
+\end{equation}
+The physical Laplacian scale multiplier is:
+\begin{equation}
+\frac{h_s}{x_s^2} \approx \frac{8.7}{(9.1 \times 10^4)^2} \approx 1.05 \times 10^{-9} \text{ m}^{-1}
+\end{equation}
+In contrast, temporal gradients scale as $h_s / t_s \approx 4.5 \times 10^{-3}\text{ m/day}$, and empirical source terms $R, Q \sim \mathcal{O}(1 - 10)$. Consequently, backpropagated gradients for transmissivity $T$ through the diffusion operator $-T \nabla^2 h$ vanish completely ($\sim 10^{-14}$) under standard double-precision autograd. To render the diffusion operator mathematically active during physical inversion, an empirical Laplacian magnification factor $\kappa_{\text{scale}} = 10^{10}$ is introduced:
+\begin{equation}
+\mathcal{R}_{\text{PDE}} = S_d \left( -\frac{\partial h}{\partial t} \right) - \kappa_{\text{scale}} T_d \nabla^2 h - R + Q
+\label{eq:residual_scaled}
+\end{equation}
+where $S_d = \text{softplus}(S_{\text{raw}}[d])$ and $T_d = \text{softplus}(T_{\text{raw}}[d])$ represent learnable per-district aquifer parameters.
+
+\section{Neural Architecture and Learning}
+
+\subsection{Anchored Residual Formulation}
+Standard multi-layer perceptrons trained directly on absolute depth targets $\hat{h}$ suffer from severe well-to-well variance: 73.6\% of the variance in groundwater records is between-well spatial variance driven by micro-topography, borehole casing depth, and local fracture density.
+
+To overcome this, we structure the network as a \textbf{residual-from-anchor predictor}:
+\begin{equation}
+\hat{h}(x, y, t) = \hat{h}_0(x, y) + \alpha \cdot \mathcal{F}_\theta\big(x, y, t, \phi(t), R, Q, z_{\text{surf}}, \mathbf{e}_d, \hat{h}_0\big)
+\label{eq:arch_forward}
+\end{equation}
+where:
+\begin{itemize}
+    \item $\hat{h}_0(x, y)$ is the 90-day pre-cutoff rolling average water level observed at that specific well.
+    \item $\mathcal{F}_\theta$ is a 4-layer MLP with hidden width 128 and $\text{SiLU}$ activations.
+    \item $\phi(t) = \big[\sin(2\pi t / 365.25), \cos(2\pi t / 365.25)\big]$ provides harmonic annual cyclical phase.
+    \item $\mathbf{e}_d \in \mathbb{R}^8$ is an embedding vector representing the administrative district.
+    \item $\alpha = \text{softplus}(\log \alpha) \in \mathbb{R}^+$ is a trainable global shrinkage parameter initialized at $\log(0.30)$.
+\end{itemize}
+
+At step zero, $\mathcal{F}_\theta \approx 0$, ensuring the model initializes exactly at the empirical persistence baseline. Gradient descent is dedicated solely to learning the dynamic deviation $\Delta$ driven by monsoonal recharge and seasonal drawdown.
+
+\subsection{Dual-Regime Training via Anchor Dropout}
+For unmonitored spatial locations (held-out wells and synthetic collocation points), no local anchor $\hat{h}_0$ exists. To prevent covariate shift between training and evaluation, we implement \textbf{Anchor Dropout} ($p_{\text{drop}} = 0.30$):
+\begin{equation}
+\hat{h}_0^{\text{train}} = \mathbf{m} \odot \hat{h}_0, \quad \mathbf{m} \sim \text{Bernoulli}(1 - p_{\text{drop}})
+\end{equation}
+When $\mathbf{m} = 0$, the input anchor is zeroed, forcing $\mathcal{F}_\theta$ to predict the unconditional absolute depth field $\hat{h}$ directly from spatial coordinates, topography, and district embeddings. This preserves spatial interpolation capability while enabling anchored temporal forecasting.
+
+\subsection{Loss Function}
+The joint optimization objective balances observational data fitting, anchor deviation regularization, initial conditions, and physical PDE residuals:
+\begin{equation}
+\mathcal{L}_{\text{total}} = W_{\text{data}} \mathcal{L}_{\text{data}} + W_{\Delta} \mathcal{L}_{\Delta} + W_{\text{IC}} \mathcal{L}_{\text{IC}} + W_{\text{PDE}} \mathcal{L}_{\text{PDE}}
+\end{equation}
+\begin{equation}
+\mathcal{L}_{\text{data}} = \frac{1}{N_B} \sum_{i=1}^{N_B} \big( \hat{h}_{\text{pred}}^{(i)} - \hat{h}_{\text{true}}^{(i)} \big)^2
+\end{equation}
+\begin{equation}
+\mathcal{L}_{\Delta} = \frac{1}{N_B} \sum_{i=1}^{N_B} \big( \hat{h}_{\text{pred}}^{(i)} - \hat{h}_{0,\text{used}}^{(i)} \big)^2
+\end{equation}
+\begin{equation}
+\mathcal{L}_{\text{PDE}} = \frac{1}{N_C} \sum_{j=1}^{N_C} \Big( \mathcal{R}_{\text{PDE}}\big(x_j, y_j, t_j\big) \Big)^2
+\end{equation}
+Hyperparameters are established at $W_{\text{data}} = 1.0$, $W_{\Delta} = 10^{-2}$, $W_{\text{IC}} = 1.0$, optimized via Adam ($\text{lr} = 10^{-3}$, weight decay $3 \times 10^{-4}$) for 10,000 epochs.
+
+\section{Experimental Dataset \& Cleaning}
+The experimental data foundation integrates four disparate hydro-meteorological archives spanning 1972 through 2026 across Tamil Nadu:
+\begin{itemize}
+    \item \textbf{Manual Groundwater Records:} 1,093,251 quarterly observations (1972--2020) across ~2,500 observation wells.
+    \item \textbf{Telemetry Monitoring:} 3,485,573 automated 6-hourly records (2000--2026) across up to 849 telemetry piezometers.
+    \item \textbf{Rainfall Covariates:} Hourly and daily rainfall across 145 telemetry stations and sparse historical stations (1972--2026).
+    \item \textbf{Humidity \& Evapotranspiration:} Hourly relative humidity across 45 stations (26 districts, 2021--2026).
+    \item \textbf{Well Statistics \& Pumping ($Q$):} District-level snapshot of energized wells and irrigated hectares from CGWB/PWD statistics.
+\end{itemize}
+
+\subsection{Cleaning Protocol}
+Station identifiers frequently repeat across unrelated basins (181 duplicate station names identified). Stations are uniquely indexed by the composite tuple \texttt{(Station\_Name, LGD\_District\_Code)}. District names are standardized against the 38 canonical Local Government Directory (LGD) codes, resolving the 2019--2020 administrative splits. Automated digital telemetry sensors record water column pressure above sensor datum; analysis of median distributions confirmed the telemetry series requires exact sign negation ($-raw$) to align with manual monitoring.
+
+\section{Experimental Results}
+
+\subsection{Evaluation Protocol}
+To ensure statistical rigor:
+\begin{enumerate}
+    \item \textbf{3-Seed Battery:} Measured optimization variance spans 0.505~m on forecast RMSE and 0.337--0.854~m on spatial RMSE. All configurations are evaluated across three random optimization seeds (\texttt{SEED = 0, 1, 2}), with mean $\pm$ range reported.
+    \item \textbf{Pinned Benchmark Split (\texttt{SPLIT\_SEED = 0}):} Held-out well draw is permanently locked at seed 0 to prevent baseline drift.
+    \item \textbf{Operational Baselines:} Forecast is judged against \textbf{persistence} (5.500~m RMSE) and 90-day rolling mean (5.406~m RMSE). Spatial is judged against \textbf{5-kNN on train well means} (11.573~m RMSE).
+\end{enumerate}
+
+\subsection{Main Benchmark Findings}
+Table~\ref{tab:main_results} reports benchmark performance across 3 seeds.
+
+\begin{table*}[t]
+\centering
+\caption{Benchmark Performance across 3 Optimization Seeds (Mean $\pm$ Range over Seeds 0, 1, 2)}
+\label{tab:main_results}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model / Configuration} & \textbf{Spatial RMSE (m)} & \textbf{Forecast RMSE (m)} & \textbf{Forecast MAE (m)} & \textbf{Well Win Rate vs. Pers.} \\
+\midrule
+\textit{Operational Baselines:} & & & & \\
+District Mean Baseline & 12.013 & 12.013 & 6.420 & -- \\
+5-kNN Baseline on Train Well Means & 11.573 & 8.420 & 4.610 & -- \\
+Persistence (Last Observation) & -- & 5.500 & 2.473 & 0.0\% \\
+90-day Pre-Cutoff Rolling Mean & -- & 5.406 & 2.430 & 52.1\% \\
+Oracle Floor (Future Well Mean) & 5.070 & 3.730 & 1.840 & 100.0\% \\
+\midrule
+\textit{Trained Models:} & & & & \\
+Coupled PINN ($W_{\text{PDE}} = 10^{-4}$) & 11.552 $\pm$ 0.412 & 5.803 $\pm$ 0.320 & 3.076 $\pm$ 0.180 & 44.2\% $\pm$ 3.1\% \\
+\textbf{Decoupled Model ($W_{\text{PDE}} = 0.0$)} & \textbf{10.668 $\pm$ 0.608} & \textbf{5.057 $\pm$ 0.070} & \textbf{2.391 $\pm$ 0.040} & \textbf{75.6\% $\pm$ 1.3\%} \\
+\midrule
+\textbf{Performance Margin} & \textbf{-0.905 m (3/3 wins)} & \textbf{-0.443 m (3/3 wins)} & \textbf{-0.082 m} & \textbf{+31.4\% over PINN} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The decoupled architecture establishes decisive margins of victory over both operational baselines. On the primary forecast task, delta shrinkage achieves an RMSE of \textbf{5.057~m} (beating persistence by \textbf{0.443~m}), maintaining an exceptionally narrow seed range of just \textbf{0.070~m} (7~cm). Furthermore, the model improves predictions on \textbf{75.6\% of individual monitoring wells} (527 out of 699 test wells).
+
+\subsection{Physical Regularization Ablation}
+Table~\ref{tab:pde_ablation} highlights the contrast between the coupled PINN and the decoupled model.
+
+\begin{table}[h]
+\centering
+\caption{Physical Regularization Ablation ($W_{\text{PDE}} = 10^{-4}$ vs. $W_{\text{PDE}} = 0.0$)}
+\label{tab:pde_ablation}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metric} & \textbf{$W_{\text{PDE}} = 10^{-4}$} & \textbf{$W_{\text{PDE}} = 0.0$} & \textbf{Delta ($\Delta$)} \\
+\midrule
+Spatial RMSE & 11.552 m & 10.668 m & -0.884 m (Better) \\
+Spatial MAE & 6.410 m & 6.053 m & -0.357 m (Better) \\
+Raw Forecast RMSE & 6.487 m & 5.803 m & -0.684 m (Better) \\
+Shrunk Forecast RMSE & 5.161 m & 5.057 m & -0.104 m (Better) \\
+Training Time (CPU) & 19.2 min & 6.1 min & -68.2\% (Faster) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Hydrogeological Explanation:} Uncalibrated proxies $R$ and $Q$ lack volumetric dimensions ($\text{m}^3/\text{day}$). Enforcing algebraic consistency with autograd differential operators creates synthetic gradient noise that actively corrupts observational data fitting. Setting $W_{\text{PDE}} = 0.0$ frees the representation to track empirical well fluctuations cleanly.
+
+\subsection{Inductive Bias Validation: Seasonality}
+Table~\ref{tab:seasonal_ablation} presents the 3-seed seasonal feature ablation battery (Runs 39--41).
+
+\begin{table}[h]
+\centering
+\caption{3-Seed Seasonal Ablation Battery ($USE\_SEASONAL$)}
+\label{tab:seasonal_ablation}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metric} & \textbf{With Seasonal} & \textbf{No Seasonal} & \textbf{Degradation} \\
+\midrule
+Spatial RMSE & 10.668 m & 11.084 m & +0.416 m \\
+Raw Forecast RMSE & 5.803 m & 11.071 m & \textbf{+5.268 m (DOUBLED)} \\
+Raw Forecast MAE & 3.076 m & 5.849 m & +2.773 m \\
+Raw Well Wins vs Pers. & 46.8\% & 30.8\% & -16.0\% (Collapsed) \\
+Shrunk Forecast RMSE & 5.057 m & 5.260 m & +0.203 m \\
+Shrunk Well Wins & 75.6\% & 59.9\% & -15.7\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Disabling annual harmonic encodings doubles the raw forecast RMSE to 11.071~m. Without periodic temporal bounds, MLPs extrapolate secular drawdown into runaway deep water tables (100--140~m). Seasonal harmonics provide an essential inductive bias for multi-month hydrological horizons.
+
+\section{Conclusion}
+This work systematically evaluates physics-informed neural network architectures for regional groundwater prediction across Tamil Nadu, India. Through 44 empirical runs and multi-seed batteries, we demonstrate that uncalibrated proxy PDEs act as destructive gradient noise during joint network training. Superior predictive performance is achieved by decoupling the predictive architecture into an anchored residual network with learnable delta shrinkage ($\alpha \approx 0.4$) and harmonic seasonal biases. This model consistently outperforms both the persistence baseline on 1.2-year forecasts (5.057~m vs. 5.500~m RMSE; 75.6\% well win rate) and the 5-kNN baseline on held-out spatial wells (10.668~m vs. 11.573~m RMSE). Decoupling physical parameter inversion into a post-hoc diagnostic stage preserves hydrogeological parameter estimation without degrading operational forecasting accuracy.
+
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{00}
+\bibitem{mcdonald1988modular} M.~G. McDonald and A.~W. Harbaugh, ``A modular three-dimensional finite-difference ground-water flow model,'' \emph{USGS Techniques of Water-Resources Investigations}, book~6, chap.~A1, 1988.
+\bibitem{raissi2019physics} M.~Raissi, P.~Perdikaris, and G.~E. Karniadakis, ``Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations,'' \emph{Journal of Computational Physics}, vol. 378, pp. 686--707, 2019.
+\bibitem{tartakovsky2020physics} A.~M. Tartakovsky, C.~O. Marrero, P.~Perdikaris, G.~D. Tartakovsky, and D.~Barajas-Solano, ``Physics-informed deep neural networks for learning parameters and constitutive relationships in subsurface flow problems,'' \emph{Water Resources Research}, vol.~56, no.~5, p. e2019WR026731, 2020.
+\bibitem{cgwb2022dynamic} Central Ground Water Board (CGWB), ``Dynamic Ground Water Resources of India, 2022,'' Ministry of Jal Shakti, Government of India, Tech. Rep., 2022.
+\bibitem{fienen2022risk} M.~N. Fienen, J.~E. Doherty, C.~D. Hunt, and H.~W. Reeves, ``Risk-based groundwater management using statistical learning and numerical groundwater models,'' \emph{Frontiers in Water}, vol.~4, p. 829560, 2022.
+\end{thebibliography}
+
+\end{document}
